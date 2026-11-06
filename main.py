@@ -1,8 +1,10 @@
 import os
 import threading
+import time
 import requests
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta, timezone
 from flask import Flask
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -13,7 +15,7 @@ bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 @app.route('/')
 def home():
-    return "Forex Bot is LIVE!"
+    return "Ism154 Forex Bot PRO - AUTO 1M LIVE!"
 
 PAIRS = {
     "EUR/USD": "EURUSD=X",
@@ -23,33 +25,28 @@ PAIRS = {
 }
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+auto_users = set()
+YANGON = timezone(timedelta(hours=6, minutes=30))
+
+def get_expiry():
+    now = datetime.now(YANGON)
+    expiry = now + timedelta(minutes=1)
+    return now.strftime("%I:%M:%S %p"), expiry.strftime("%I:%M:%S %p")
 
 def get_close(symbol):
-    # Direct Yahoo Chart API - works on Render, yfinance doesn't
     for host in ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]:
         try:
-            url = f"https://{host}/v8/finance/chart/{symbol}?range=5d&interval=15m"
+            url = f"https://{host}/v8/finance/chart/{symbol}?range=1d&interval=1m"
             r = requests.get(url, headers=HEADERS, timeout=15)
             data = r.json()
             result = data['chart']['result'][0]
             closes = result['indicators']['quote'][0]['close']
             closes = [c for c in closes if c is not None]
             if len(closes) > 30:
-                print(f"OK {symbol} got {len(closes)} candles from {host}")
                 return pd.Series(closes)
         except Exception as e:
             print(f"Fail {host} {symbol}: {e}")
             continue
-    # Fallback: Stooq daily
-    try:
-        stooq_map = {"EURUSD=X": "eurusd", "GBPUSD=X": "gbpusd", "USDJPY=X": "usdjpy", "GC=F": "xauusd"}
-        s = stooq_map.get(symbol, "eurusd")
-        url = f"https://stooq.com/q/d/l/?s={s}&i=d"
-        df = pd.read_csv(url)
-        if len(df) > 30:
-            return pd.Series(df['Close'].values.astype(float))
-    except Exception as e:
-        print(f"Stooq fail {symbol}: {e}")
     return None
 
 def analyze(symbol):
@@ -102,15 +99,34 @@ def analyze(symbol):
 def make_signal(pair_name, symbol):
     res = analyze(symbol)
     if res is None:
-        return f"❌ {pair_name}: Data not available, try again in 1 min."
+        return None, 0
     price, r, e20, e50, m, s, up, lo, st, votes, details = res
-    if votes >= 3: sig, emoji = "STRONG BUY 🟢🟢 CALL ⬆️⬆️", "🟢"
-    elif votes >= 1: sig, emoji = "BUY 🟢 CALL ⬆️", "🟢"
-    elif votes <= -3: sig, emoji = "STRONG SELL 🔴🔴 PUT ⬇️⬇️", "🔴"
-    elif votes <= -1: sig, emoji = "SELL 🔴 PUT ⬇️", "🔴"
-    else: sig, emoji = "WAIT ⚪ NEUTRAL - NO TRADE", "⚪"
+    entry_time, expiry_time = get_expiry()
+    if votes >= 3: sig, emoji, action = "STRONG BUY 🟢🟢 CALL ⬆️⬆️", "🟢", "CALL ⬆️"
+    elif votes >= 1: sig, emoji, action = "BUY 🟢 CALL ⬆️", "🟢", "CALL ⬆️"
+    elif votes <= -3: sig, emoji, action = "STRONG SELL 🔴🔴 PUT ⬇️⬇️", "🔴", "PUT ⬇️"
+    elif votes <= -1: sig, emoji, action = "SELL 🔴 PUT ⬇️", "🔴", "PUT ⬇️"
+    else: sig, emoji, action = "WAIT ⚪ NEUTRAL - NO TRADE", "⚪", "NO TRADE"
     detail_text = "\n".join([f"• {d}" for d in details])
-    return (f"{emoji} **{pair_name}**\n💰 Price: `{price:.5f}`\n🎯 Signal: **{sig}**\n⭐ Score: `{votes}/5`\n\n📊 **Indicators:**\nRSI (14): `{r:.1f}`\nEMA 20: `{e20:.5f}` | EMA 50: `{e50:.5f}`\nMACD: `{m:.5f}` | Signal: `{s:.5f}`\nBollinger: `{lo:.5f} - {up:.5f}`\nStochastic: `{st:.1f}`\n\n🔍 **Analysis:**\n{detail_text}\n\n⏰ Timeframe: 15M")
+    text = (
+        f"{emoji} **{pair_name} - 1M**\n"
+        f"💰 Price: `{price:.5f}`\n"
+        f"🎯 Signal: **{sig}**\n"
+        f"⭐ Score: `{votes}/5`\n\n"
+        f"⏰ **TRADE TIME (Myanmar):**\n"
+        f"🕐 Entry: `{entry_time}`\n"
+        f"⏳ Expiry: `{expiry_time}` (1 Min)\n"
+        f"👉 Action: **{action}**\n\n"
+        f"📊 **5 Indicators:**\n"
+        f"RSI (14): `{r:.1f}`\n"
+        f"EMA 20: `{e20:.5f}` | EMA 50: `{e50:.5f}`\n"
+        f"MACD: `{m:.5f}` | Signal: `{s:.5f}`\n"
+        f"Bollinger: `{lo:.5f} - {up:.5f}`\n"
+        f"Stochastic: `{st:.1f}`\n\n"
+        f"🔍 **Analysis:**\n{detail_text}\n\n"
+        f"⏰ Timeframe: 1M | 🤖 AUTO"
+    )
+    return text, votes
 
 def main_menu():
     markup = InlineKeyboardMarkup(row_width=2)
@@ -119,23 +135,74 @@ def main_menu():
         InlineKeyboardButton("GBP/USD", callback_data="sig_GBP/USD"),
         InlineKeyboardButton("USD/JPY", callback_data="sig_USD/JPY"),
         InlineKeyboardButton("GOLD", callback_data="sig_GOLD"),
+        InlineKeyboardButton("🤖 AUTO ON - Every 1 Min", callback_data="auto_on"),
+        InlineKeyboardButton("🛑 AUTO OFF", callback_data="auto_off"),
         InlineKeyboardButton("NEXT SIGNAL", callback_data="next"),
     )
     return markup
 
+def auto_loop():
+    print("AUTO loop started - Every 1 Min")
+    while True:
+        try:
+            if len(auto_users) > 0:
+                for pair_name, symbol in PAIRS.items():
+                    text, votes = make_signal(pair_name, symbol)
+                    if text is None:
+                        continue
+                    if votes >= 3 or votes <= -3:
+                        for chat_id in list(auto_users):
+                            try:
+                                bot.send_message(chat_id, f"🤖 **AUTO SIGNAL - TAKE NOW!**\n\n{text}", parse_mode="Markdown", reply_markup=main_menu())
+                            except Exception as e:
+                                print(f"Auto send fail {chat_id}: {e}")
+                    time.sleep(2)
+            time.sleep(60)
+        except Exception as e:
+            print(f"Auto loop error: {e}")
+            time.sleep(20)
+
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.send_message(message.chat.id, "Welcome to Ism154 Forex Bot PRO!\n\n5 Indicators: RSI + MACD + EMA + Bollinger + Stochastic\nSelect a pair:", reply_markup=main_menu())
+    bot.send_message(message.chat.id,
+        "Welcome to Ism154 Forex Bot PRO! 🚀\n\n"
+        "✅ Timeframe: 1M Scalping\n"
+        "✅ 5 Indicators: RSI + MACD + EMA + Bollinger + Stochastic\n"
+        "✅ Expiry: 1 Minute\n"
+        "✅ Time: Myanmar Time\n"
+        "✅ AUTO: STRONG signals every 1 Min\n\n"
+        "Tap AUTO ON to start, or tap any pair for manual signal:",
+        reply_markup=main_menu())
+
+@bot.message_handler(commands=['auto'])
+def auto_cmd(message):
+    auto_users.add(message.chat.id)
+    bot.send_message(message.chat.id, "🤖 AUTO ON! ✅\n\nI will send STRONG signals (Score 3+) every 1 Min with Entry + Expiry (1 Min).\n\nTap AUTO OFF to stop.", reply_markup=main_menu())
+
+@bot.message_handler(commands=['stop'])
+def stop_cmd(message):
+    auto_users.discard(message.chat.id)
+    bot.send_message(message.chat.id, "🛑 AUTO OFF. Stopped.", reply_markup=main_menu())
 
 @bot.callback_query_handler(func=lambda call: True)
 def handle(call):
     if call.data == "next":
         bot.send_message(call.message.chat.id, "Choose a pair:", reply_markup=main_menu())
         return
+    if call.data == "auto_on":
+        auto_users.add(call.message.chat.id)
+        bot.send_message(call.message.chat.id, "🤖 AUTO ON! ✅\n\nSTRONG signals every 1 Min with 1 Min Expiry.\nOnly Score 3+ signals.\n\nTap AUTO OFF to stop.", reply_markup=main_menu())
+        return
+    if call.data == "auto_off":
+        auto_users.discard(call.message.chat.id)
+        bot.send_message(call.message.chat.id, "🛑 AUTO OFF. Stopped.", reply_markup=main_menu())
+        return
     if call.data.startswith("sig_"):
         pair = call.data.replace("sig_", "")
-        bot.send_message(call.message.chat.id, "Analyzing 5 indicators...")
-        text = make_signal(pair, PAIRS[pair])
+        bot.send_message(call.message.chat.id, "Analyzing 5 indicators (1M)...")
+        text, votes = make_signal(pair, PAIRS[pair])
+        if text is None:
+            text = f"❌ {pair}: Data not available, try again."
         bot.send_message(call.message.chat.id, text, parse_mode="Markdown", reply_markup=main_menu())
 
 def run_bot():
@@ -144,5 +211,6 @@ def run_bot():
 
 if __name__ == "__main__":
     threading.Thread(target=run_bot, daemon=True).start()
+    threading.Thread(target=auto_loop, daemon=True).start()
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
