@@ -1,4 +1,6 @@
-Flask
 pyTelegramBotAPI
 yfinance
 pandas
+numpy
+matplotlib
+Flask
