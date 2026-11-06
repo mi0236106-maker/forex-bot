@@ -1,179 +1,153 @@
-import os, threading, time, datetime
+import os, time, threading, io
 import yfinance as yf
 import pandas as pd
-from flask import Flask
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+from flask import Flask
 
 TOKEN = os.environ.get("BOT_TOKEN")
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
+
 @app.route('/')
 def home():
-    return "Forex Bot is LIVE!"
+    return "Ism154 Bot Live - 5 Indicators - 80 Sec"
 
-PAIRS = {
-    "EUR/USD": "EURUSD=X",
-    "USD/JPY": "USDJPY=X",
-    "EUR/JPY": "EURJPY=X",
-    "EUR/AUD": "EURAUD=X",
-}
+PAIRS = ["GBP/JPY", "CAD/JPY", "EUR/USD", "USD/JPY", "EUR/JPY", "EUR/AUD"]
+YF = {"GBP/JPY":"GBPJPY=X", "CAD/JPY":"CADJPY=X", "EUR/USD":"EURUSD=X", "USD/JPY":"USDJPY=X", "EUR/JPY":"EURJPY=X", "EUR/AUD":"EURAUD=X"}
 
-alert_on = set()
+alarm_on = True
+pair_index = 0
 
-def analyze(symbol):
+def get_signal(pair):
     try:
-        df = yf.download(symbol, period="1d", interval="1m", progress=False)
-        if df.empty or len(df) < 50:
-            return None
-        close = df['Close'].flatten()
+        df = yf.download(YF[pair], period="1d", interval="1m", progress=False)
+        if df.empty or len(df) < 30:
+            return None, None, ""
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        close = df['Close']
+        high = df['High']
+        low = df['Low']
+
+        # 1. RSI 14
         delta = close.diff()
-        gain = delta.where(delta > 0, 0).rolling(14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-        rsi = 100 - (100 / (1 + (gain/loss)))
-        ema20 = close.ewm(span=20).mean()
-        ema50 = close.ewm(span=50).mean()
+        gain = delta.where(delta>0,0).rolling(14).mean()
+        loss = -delta.where(delta<0,0).rolling(14).mean()
+        rsi = 100 - (100/(1+(gain/loss)))
+        last_rsi = float(rsi.iloc[-1])
+        rsi_vote = 1 if last_rsi < 45 else -1 if last_rsi > 55 else 0
+        rsi_txt = "Bearish" if last_rsi>55 else "Bullish" if last_rsi<45 else "Neutral"
+
+        # 2. EMA 9 / 21
+        ema9 = close.ewm(span=9).mean()
+        ema21 = close.ewm(span=21).mean()
+        ema_vote = 1 if float(close.iloc[-1]) > float(ema9.iloc[-1]) else -1
+        ema_txt = "Uptrend -> BUY" if ema_vote==1 else "Downtrend -> SELL"
+
+        # 3. MACD 12,26,9
         ema12 = close.ewm(span=12).mean()
         ema26 = close.ewm(span=26).mean()
         macd = ema12 - ema26
-        sig_line = macd.ewm(span=9).mean()
+        signal_line = macd.ewm(span=9).mean()
+        macd_vote = 1 if float(macd.iloc[-1]) > float(signal_line.iloc[-1]) else -1
+        macd_txt = "Bullish -> BUY" if macd_vote==1 else "Bearish -> SELL"
+
+        # 4. Bollinger 20, 2
         sma20 = close.rolling(20).mean()
         std20 = close.rolling(20).std()
         upper = sma20 + (std20*2)
         lower = sma20 - (std20*2)
-        low14 = close.rolling(14).min()
-        high14 = close.rolling(14).max()
-        stoch = 100 * (close - low14) / (high14 - low14)
+        last_close = float(close.iloc[-1])
+        if last_close <= float(lower.iloc[-1]):
+            bb_vote = 1; bb_txt = "Lower -> BUY"
+        elif last_close >= float(upper.iloc[-1]):
+            bb_vote = -1; bb_txt = "Upper -> SELL"
+        else:
+            bb_vote = 0; bb_txt = "Middle"
+        
+        # 5. Stochastic 14,3
+        lowest = low.rolling(14).min()
+        highest = high.rolling(14).max()
+        stoch = 100 * (close - lowest) / (highest - lowest)
+        last_stoch = float(stoch.iloc[-1])
+        if last_stoch < 20:
+            stoch_vote = 1; stoch_txt = "Oversold -> BUY"
+        elif last_stoch > 80:
+            stoch_vote = -1; stoch_txt = "Overbought -> SELL"
+        else:
+            stoch_vote = 0; stoch_txt = "Neutral"
 
-        price = float(close.iloc[-1]); r = float(rsi.iloc[-1])
-        e20 = float(ema20.iloc[-1]); e50 = float(ema50.iloc[-1])
-        m = float(macd.iloc[-1]); s = float(sig_line.iloc[-1])
-        up = float(upper.iloc[-1]); lo = float(lower.iloc[-1]); st = float(stoch.iloc[-1])
+        # VOTING - ALL 5 INDICATORS
+        total = rsi_vote + ema_vote + macd_vote + bb_vote + stoch_vote
+        sig = "UP" if total >= 0 else "DOWN"
 
-        votes = 0
-        details = []
-        if r < 30: votes += 1; details.append("RSI: Oversold -> BUY")
-        elif r > 70: votes -= 1; details.append("RSI: Overbought -> SELL")
-        elif r < 50: votes += 0.5; details.append("RSI: Bullish")
-        else: votes -= 0.5; details.append("RSI: Bearish")
-        if price > e20 > e50: votes += 1; details.append("EMA: Uptrend -> BUY")
-        elif price < e20 < e50: votes -= 1; details.append("EMA: Downtrend -> SELL")
-        else: details.append("EMA: Sideways")
-        if m > s: votes += 1; details.append("MACD: Bullish -> BUY")
-        else: votes -= 1; details.append("MACD: Bearish -> SELL")
-        if price <= lo: votes += 1; details.append("Bollinger: Lower Band -> BUY")
-        elif price >= up: votes -= 1; details.append("Bollinger: Upper Band -> SELL")
-        else: details.append("Bollinger: Middle")
-        if st < 20: votes += 1; details.append("Stoch: Oversold -> BUY")
-        elif st > 80: votes -= 1; details.append("Stoch: Overbought -> SELL")
-        else: details.append("Stoch: Neutral")
-        # Return all - but we will HIDE it by default
-        return price, r, e20, e50, m, s, up, lo, st, votes, details
+        detail = f"🔍 Analysis:\n• RSI: {rsi_txt} ({last_rsi:.0f})\n• EMA: {ema_txt}\n• MACD: {macd_txt}\n• Bollinger: {bb_txt}\n• Stoch: {stoch_txt} ({last_stoch:.0f})"
+        return sig, df, detail
     except Exception as e:
         print(e)
-        return None
+        return None, None, ""
 
-def short_signal(pair, symbol):
-    res = analyze(symbol)
-    if res is None:
-        return f"{pair} - ❌ No data"
-    price, r, e20, e50, m, s, up, lo, st, votes, details = res
-    if votes >= 3: return f"{pair} - 🟢 BUY ⬆️ UP"
-    elif votes >= 1: return f"{pair} - 🟢 BUY ⬆️ UP"
-    elif votes <= -3: return f"{pair} - 🔴 SELL ⬇️ DOWN"
-    elif votes <= -1: return f"{pair} - 🔴 SELL ⬇️ DOWN"
-    else: return f"{pair} - ⚪ WAIT"
+def make_chart(df, pair):
+    plt.figure(figsize=(6,3))
+    plt.plot(df['Close'].tail(60).values, color='blue', linewidth=2)
+    plt.title(f"{pair} - 1 MIN")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    plt.close()
+    buf.seek(0)
+    return buf
 
-def full_signal(pair, symbol):
-    # This is HIDDEN - only shown when you tap Show Analysis
-    res = analyze(symbol)
-    if res is None:
-        return f"❌ {pair}: No data"
-    price, r, e20, e50, m, s, up, lo, st, votes, details = res
-    if votes >= 1: sig = "BUY 🟢 UP ⬆️"
-    elif votes <= -1: sig = "SELL 🔴 DOWN ⬇️"
-    else: sig = "WAIT ⚪ NO TRADE"
-    detail_text = "\n".join([f"• {d}" for d in details])
-    return (f"🔍 **{pair} - HIDDEN ANALYSIS**\n"
-            f"💰 Price: `{price:.5f}`\n🎯 Signal: **{sig}**\n⭐ Score: `{votes}/5`\n\n"
-            f"📊 **Indicators (Hidden):**\nRSI: `{r:.1f}`\nEMA 20: `{e20:.5f}` | EMA 50: `{e50:.5f}`\nMACD: `{m:.5f}` | Signal: `{s:.5f}`\nBollinger: `{lo:.5f} - {up:.5f}`\nStochastic: `{st:.1f}`\n\n"
-            f"🔍 **Analysis:**\n{detail_text}\n\n⏰ 1M")
-
-def main_menu():
-    markup = InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        InlineKeyboardButton("EUR/USD", callback_data="sig_EUR/USD"),
-        InlineKeyboardButton("USD/JPY", callback_data="sig_USD/JPY"),
-        InlineKeyboardButton("EUR/JPY", callback_data="sig_EUR/JPY"),
-        InlineKeyboardButton("EUR/AUD", callback_data="sig_EUR/AUD"),
-        InlineKeyboardButton("🔔 ALARM ON", callback_data="alarm_on"),
-        InlineKeyboardButton("🔕 ALARM OFF", callback_data="alarm_off"),
-    )
-    return markup
-
-def alarm_menu():
-    # Alarm buttons: Show Analysis for each pair - hidden until tapped
-    markup = InlineKeyboardMarkup(row_width=2)
-    markup.add(
-        InlineKeyboardButton("🔍 EUR/USD Analysis", callback_data="detail_EUR/USD"),
-        InlineKeyboardButton("🔍 USD/JPY Analysis", callback_data="detail_USD/JPY"),
-        InlineKeyboardButton("🔍 EUR/JPY Analysis", callback_data="detail_EUR/JPY"),
-        InlineKeyboardButton("🔍 EUR/AUD Analysis", callback_data="detail_EUR/AUD"),
-    )
-    return markup
+def auto_loop():
+    global pair_index
+    while True:
+        if not alarm_on:
+            time.sleep(2)
+            continue
+        pair = PAIRS[pair_index % len(PAIRS)]
+        pair_index += 1
+        sig, df, detail = get_signal(pair)
+        if sig and df is not None:
+            try:
+                with open("chat.txt") as f:
+                    cid = f.read().strip()
+                # 20 SEC - ALARM / PAIR
+                caption1 = f"📊📊📊\n\n✔️ {pair}\n\n⏰ TIME : 1 MIN\n\n⏳ 20 SECONDS LEFT - GET READY!"
+                chart = make_chart(df, pair)
+                bot.send_photo(cid, chart, caption=caption1)
+                time.sleep(20)
+                # 60 SEC - TRADE CANDLE
+                emoji = "⬆️ UP" if sig=="UP" else "⬇️ DOWN"
+                caption2 = f"✔️ {pair}\n\n{emoji}\n\n⏰ TIME : 1 MIN\n\n🟢 TRADE NOW! - 60 SEC CANDLE STARTED\n\n{detail}"
+                bot.send_message(cid, caption2)
+                time.sleep(60)
+                # TOTAL 80 SEC -> NEXT PAIR
+            except Exception as e:
+                print("send error", e)
+                time.sleep(5)
 
 @bot.message_handler(commands=['start'])
-def start(message):
-    bot.send_message(message.chat.id,
-        "👋 **Ism154 - 1M ALARM**\n\nPairs: EUR/USD, USD/JPY, EUR/JPY, EUR/AUD\nAlarm shows ONLY BUY UP / SELL DOWN.\nAnalysis is hidden - tap 🔍 to see it.\nTap ALARM ON:",
-        parse_mode="Markdown", reply_markup=main_menu())
+def start(m):
+    with open("chat.txt","w") as f:
+        f.write(str(m.chat.id))
+    markup = telebot.types.InlineKeyboardMarkup()
+    markup.add(telebot.types.InlineKeyboardButton("🔔 ALARM ON", callback_data="on"),
+               telebot.types.InlineKeyboardButton("🔕 ALARM OFF", callback_data="off"))
+    bot.send_message(m.chat.id, "Ism154 Bot ON ✅\n5 Indicators - Kabir Style - 80 Sec\n20 Sec Alarm + 60 Sec Trade", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: True)
-def handle(call):
-    cid = call.message.chat.id
-    if call.data == "alarm_on":
-        alert_on.add(cid)
-        bot.send_message(cid, "🔔 **ALARM ON!**\nYou will get ONLY BUY UP / SELL DOWN.", parse_mode="Markdown")
-        return
-    if call.data == "alarm_off":
-        alert_on.discard(cid)
-        bot.send_message(cid, "🔕 Alarm OFF")
-        return
-    if call.data.startswith("detail_"):
-        pair = call.data.replace("detail_", "")
-        bot.send_message(cid, "⏳ Loading hidden analysis...")
-        text = full_signal(pair, PAIRS[pair])
-        bot.send_message(cid, text, parse_mode="Markdown")
-        return
-    if call.data.startswith("sig_"):
-        pair = call.data.replace("sig_", "")
-        # Normal tap also shows ONLY short signal - clean
-        bot.send_message(cid, "⏳ Analyzing 1M...")
-        text = short_signal(pair, PAIRS[pair])
-        bot.send_message(cid, f"**{text}**\n⏰ 1M", parse_mode="Markdown", reply_markup=alarm_menu())
+@bot.callback_query_handler(func=lambda c: True)
+def alarm_btn(c):
+    global alarm_on
+    alarm_on = True if c.data=="on" else False
+    bot.answer_callback_query(c.id, "ALARM ON ✅" if alarm_on else "ALARM OFF 🔕")
 
-def alarm_loop():
-    sent_minute = -1
-    while True:
-        now = datetime.datetime.now()
-        if now.second == 40 and now.minute != sent_minute:
-            sent_minute = now.minute
-            lines = []
-            for pair, sym in PAIRS.items():
-                lines.append(short_signal(pair, sym))
-            msg = "⏰ **20 SECONDS LEFT! NEXT CANDLE!**\n🕯️ **1M - TRADE NOW:**\n\n" + "\n".join(lines) + "\n\n👆 BUY = UP ⬆️ | SELL = DOWN ⬇️"
-            for cid in list(alert_on):
-                try:
-                    bot.send_message(cid, msg, parse_mode="Markdown", reply_markup=alarm_menu())
-                except Exception as e:
-                    print(e)
-        time.sleep(1)
-
-def run_bot():
-    bot.infinity_polling()
+threading.Thread(target=auto_loop, daemon=True).start()
+threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
 
 if __name__ == "__main__":
-    threading.Thread(target=run_bot, daemon=True).start()
-    threading.Thread(target=alarm_loop, daemon=True).start()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT",10000)))
