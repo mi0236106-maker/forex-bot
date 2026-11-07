@@ -19,7 +19,7 @@ def home():
 alarm_on = True
 
 def get_keyboard():
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, persistent=True)
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, is_persistent=True)
     # SAME AS BEFORE - NOT CHANGED
     kb.row(KeyboardButton("🔔 ALARM ON"), KeyboardButton("🔕 ALARM OFF"))
     return kb
