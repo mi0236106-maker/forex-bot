@@ -81,8 +81,8 @@ def get_analysis(pair):
         if stoch_val < 50: votes_buy+=1
         else: votes_sell+=1
         direction = "UP" if votes_buy > votes_sell else "DOWN"
-    if max(votes_buy, votes_sell) < 4:
-        return None
+        if max(votes_buy, votes_sell) < 4:
+            return None
         analysis = f"🔍 Analysis:\n• RSI: {rsi_txt}\n• EMA: {ema_txt}\n• MACD: {macd_txt}\n• Bollinger: {boll_txt}\n• Stoch: {stoch_txt}"
         return direction, analysis, df, price
     except Exception as e:
