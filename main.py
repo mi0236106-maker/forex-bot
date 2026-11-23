@@ -128,7 +128,7 @@ def start(m):
         bot.send_message(m.chat.id, "🔔 Alarm ON ✅ via Menu Button", reply_markup=get_keyboard())
     else:
         bot.send_message(m.chat.id, "Ism154 Bot ON ✅\n5 Indicators - Kabir Style - 5 Min\n20 Sec Alarm + 60 Sec Trade + 3 Min 40 Sec Wait", reply_markup=get_keyboard())
-
+        
 def run_bot():
     chat_id_str = os.environ.get("CHAT_ID")
     if not chat_id_str:
@@ -140,6 +140,18 @@ def run_bot():
         if not alarm_on:
             time.sleep(10)
             continue
+
+        pair = PAIRS[idx % len(PAIRS)]
+        idx += 1
+        try:
+            result = get_analysis(pair)
+            if not result:
+                print(f"No signal for {pair}, waiting...")
+                time.sleep(10)
+                continue
+
+            direction, analysis, price = result
+            # ... rest of your code same ...
         pair = PAIRS[idx % len(PAIRS)]
         idx += 1
         try:
