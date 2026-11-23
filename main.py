@@ -140,18 +140,6 @@ def run_bot():
         if not alarm_on:
             time.sleep(10)
             continue
-
-        pair = PAIRS[idx % len(PAIRS)]
-        idx += 1
-        try:
-            result = get_analysis(pair)
-            if not result:
-                print(f"No signal for {pair}, waiting...")
-                time.sleep(10)
-                continue
-
-            direction, analysis, price = result
-            # ... rest of your code same ...
         pair = PAIRS[idx % len(PAIRS)]
         idx += 1
         try:
