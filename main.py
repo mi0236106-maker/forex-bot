@@ -80,8 +80,9 @@ def get_analysis(pair):
         else: votes_sell+=1
         if stoch_val < 50: votes_buy+=1
         else: votes_sell+=1
-        direction = "UP" if votes_buy > votes_sell else "DOWN"
-        if max(votes_buy, votes_sell) < 4:
+            direction = "UP" if votes_buy > votes_sell else "DOWN"
+            if max(votes_buy, votes_sell) < 4 or (ema9 > ema21) != (float(macd.iloc[-1]) > float(macd_sig.iloc[-1])) or pd.isna(rsi_val):
+        
             return None
         analysis = f"🔍 Analysis:\n• RSI: {rsi_txt}\n• EMA: {ema_txt}\n• MACD: {macd_txt}\n• Bollinger: {boll_txt}\n• Stoch: {stoch_txt}"
         return direction, analysis, df, price
