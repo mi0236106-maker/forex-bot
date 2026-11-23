@@ -74,14 +74,14 @@ def get_analysis(pair):
         else: votes_sell+=1
         if float(macd.iloc[-1]) > float(macd_sig.iloc[-1]): votes_buy+=1
         else: votes_sell+=1
-        if price > middle: votes_buy+=1
-        else: votes_sell+=1
-        if rsi_val < 50: votes_buy+=1
-        else: votes_sell+=1
-        if stoch_val < 50: votes_buy+=1
-        else: votes_sell+=1
+        if price > upper: votes_sell+=1
+        elif price < lower: votes_buy+=1
+        if rsi_val < 30: votes_buy+=1
+        elif rsi_val > 70: votes_sell+=1
+        if stoch_val < 20: votes_buy+=1
+        elif stoch_val > 80: votes_sell+=1
         direction = "UP" if votes_buy > votes_sell else "DOWN"
-        if max(votes_buy, votes_sell) < 4 or (ema9 > ema21) != (float(macd.iloc[-1]) > float(macd_sig.iloc[-1])) or pd.isna(rsi_val):
+        if max(votes_buy, votes_sell) < 3 or (ema9 > ema21) != (float(macd.iloc[-1]) > float(macd_sig.iloc[-1])) or pd.isna(rsi_val):
         
             return None
         analysis = f"🔍 Analysis:\n• RSI: {rsi_txt}\n• EMA: {ema_txt}\n• MACD: {macd_txt}\n• Bollinger: {boll_txt}\n• Stoch: {stoch_txt}"
