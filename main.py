@@ -157,8 +157,23 @@ def run_bot():
             emoji = "⬆️ UP" if direction == "UP" else "⬇️ DOWN"
             bot.send_message(chat_id, f"✔️ {pair}\n\n{emoji}\n\n⏰ TIME : 1 MIN\n\n🟢 TRADE NOW! - 60 SEC CANDLE STARTED\n\n{analysis}", reply_markup=get_keyboard())
             time.sleep(60)
-            bot.send_message(chat_id, f"⏳ {pair} Trade Finished. Wait 3 Min 40 Sec for next alarm...", reply_markup=get_keyboard())
-            time.sleep(220)
+            bot.send_message(chat_id, f"🔍 {pair} Trade Finished. Analyzing ALL pairs for 3 Min 40 Sec to find BEST signal...")
+best_signal = None
+start = time.time()
+while time.time() - start < 220:
+    if not alarm_on:
+        break
+    for p in PAIRS:
+        result = get_analysis(p)
+        if result:
+            best_signal = result
+            break
+    if best_signal:
+        break
+    time.sleep(10)
+time.sleep(60)
+if best_signal:
+    bot.send_message(chat_id, best_signal[1])
         except Exception as e:
             print(f"Loop error: {e}")
             time.sleep(10)
