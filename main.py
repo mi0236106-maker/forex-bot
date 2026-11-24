@@ -161,20 +161,20 @@ def run_bot():
             best_signal = None
             start = time.time()
             while time.time() - start < 220:
-    if not alarm_on:
-        break
-    for p in PAIRS:
-        result = get_analysis(p)
-        if result:
-            best_signal = result
-            break
-    if best_signal:
-        break
-    time.sleep(10)
-time.sleep(60)
-if best_signal:
-    bot.send_message(chat_id, best_signal[1])
-        except Exception as e:
+                if not alarm_on:
+                    break
+                for p in PAIRS:
+                    result = get_analysis(p)
+                    if result:
+                        best_signal = result
+                        break
+                if best_signal:
+                    break
+                time.sleep(10)
+           time.sleep(60)
+           if best_signal:
+               bot.send_message(chat_id, best_signal[1])
+           except Exception as e:
             print(f"Loop error: {e}")
             time.sleep(10)
 
