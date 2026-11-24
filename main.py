@@ -144,7 +144,10 @@ def run_bot():
         idx += 1
         try:
             result = get_analysis(pair)
-            if not result: continue
+            if not result:
+                print(f"No signal for {pair}")
+                time.sleep(5)
+                continue
             direction, analysis, df, price = result
             bot.send_message(chat_id, analysis, reply_markup=get_keyboard())
             chart = make_chart(df, pair)
