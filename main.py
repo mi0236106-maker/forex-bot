@@ -171,8 +171,8 @@ def run_bot():
                 if best_signal:
                     break
                 time.sleep(10)
-           time.sleep(60)
-           if best_signal:
+                time.sleep(60)
+                if best_signal:
                bot.send_message(chat_id, best_signal[1])
            except Exception as e:
             print(f"Loop error: {e}")
