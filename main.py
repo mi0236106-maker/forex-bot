@@ -173,10 +173,10 @@ def run_bot():
                 time.sleep(10)
                 time.sleep(60)
                 if best_signal:
-               bot.send_message(chat_id, best_signal[1])
-           except Exception as e:
-            print(f"Loop error: {e}")
-            time.sleep(10)
+                    bot.send_message(chat_id, best_signal[1])
+                except Exception as e:
+                 print(f"Loop error: {e}")
+                 time.sleep(10)
 
 # --- ADDED ONLY - SET BOTTOM MENU UNDER THE BOT - NOTHING ELSE CHANGED ---
 try:
