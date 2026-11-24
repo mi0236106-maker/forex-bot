@@ -81,9 +81,7 @@ def get_analysis(pair):
         if stoch_val < 20: votes_buy+=1
         elif stoch_val > 80: votes_sell+=1
         direction = "UP" if votes_buy > votes_sell else "DOWN"
-        if max(votes_buy, votes_sell) < 3 or (ema9 > ema21) != (float(macd.iloc[-1]) > float(macd_sig.iloc[-1])): return None
-        if direction == "UP" and not (ema9 > ema21 and float(macd.iloc[-1]) > float(macd_sig.iloc[-1])): return None
-        if direction == "DOWN" and not (ema9 < ema21 and float(macd.iloc[-1]) < float(macd_sig.iloc[-1])): return None
+        if max(votes_buy, votes_sell) < 2: return None
         analysis = f"🔍 Analysis:\n• RSI: {rsi_txt}\n• EMA: {ema_txt}\n• MACD: {macd_txt}\n• Bollinger: {boll_txt}\n• Stoch: {stoch_txt}"
         return direction, analysis, df, price
     except Exception as e:
