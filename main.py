@@ -158,9 +158,9 @@ def run_bot():
             bot.send_message(chat_id, f"✔️ {pair}\n\n{emoji}\n\n⏰ TIME : 1 MIN\n\n🟢 TRADE NOW! - 60 SEC CANDLE STARTED\n\n{analysis}", reply_markup=get_keyboard())
             time.sleep(60)
             bot.send_message(chat_id, f"🔍 {pair} Trade Finished. Analyzing ALL pairs for 3 Min 40 Sec to find BEST signal...")
-best_signal = None
-start = time.time()
-while time.time() - start < 220:
+            best_signal = None
+            start = time.time()
+            while time.time() - start < 220:
     if not alarm_on:
         break
     for p in PAIRS:
